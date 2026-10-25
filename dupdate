@@ -1,0 +1,77 @@
+#!/bin/bash
+# Automates the removal of containers, rebuilds docker project and re-starts the docker project
+set -e
+
+if [[ -z "${1:-}" || -z "${2:-}" || -z "${3:-}" ]]; then
+	echo "Usage: dupdate <Project name> <Directory> <Port>"
+	exit 0
+fi
+
+PROJECT_NAME=$1
+DIR=$2
+PORT=$3
+
+build_image(){
+	echo "Starting build process for $PROJECT_NAME"
+	docker build -t "$PROJECT_NAME" "$DIR"
+	if [ $? -eq 0 ]; then
+		echo "Docker build was successful."
+		echo "Starting new container..."
+		docker run -dp $PORT:$PORT $PROJECT_NAME
+		if [ $? -eq 0 ]; then
+			echo "Started container on port $PORT."
+			exit 0
+		else
+			echo "Failed to start container"
+			exit 1
+		fi
+	else
+		echo "Failed to build image."
+		exit 1
+	fi
+}
+
+stop_and_remove_container(){
+	local cid="$1"
+	echo "Stopping container with ID: $cid"
+	docker stop $cid
+	if [[ $? -ne 0 ]]; then
+		echo "Failed to stop container with ID: $cid"
+		return 1
+	fi
+	docker rm $cid
+	if [[ $? -ne 0 ]]; then
+		echo "Failed to remove container with ID: $cid"
+		return 1
+	fi
+	echo "Complete"
+	return 0
+}
+
+cids=$(docker ps -aqf "ancestor=$PROJECT_NAME")
+
+if [ -z "${cids:-}" ];then
+	echo "Unable to find running container for $PROJECT_NAME"
+fi
+
+echo "Checking existing containers..."
+a_cids=()
+for line in $cids
+do
+	echo "Found container with ID: $line"
+	a_cids+=("$line")
+done
+
+if [[ -n "${a_cids[0]}" ]]; then
+	echo "Existing containers found."
+	for cid in $a_cids
+	do
+		stop_and_remove_container $cid
+	done
+fi	
+echo "Containers stopped and removed or didn't exits."
+
+# Move on to build 
+echo "Beginning build"
+build_image
+
